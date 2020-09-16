@@ -1,0 +1,163 @@
+DMP相关代码手册(Updated: 2020.9.3)
+
+是否需要把某些部分写成GUI?
+
+目录
+	1 数据存储结构
+	2 原始数据处理
+
+
+加荧光矫正？
+CalibrateImage.m
+fluo_pattern.mat
+
+
+--------
+
+1 数据存储结构：
+	DMT-Archive.xlsx		(数据档案，包含时间点数据)
+	Date\	(实验日期)
+		Intestine-? Global_I.mat	(全图荧光强度)
+		Intestine-?.txt 	(本wave时间信息)
+		Readme.txt
+		Intestine-?\	(所有原图)
+		Intestine-?-Map\	(所有Map至255图像)
+		Intestine-?-Wave\	(处理中间结果与数据，main.m创建)
+			Intensity-Length wave_?.fig
+			Intensity-Length wave_?.jpg
+			worm ? seg.jpg		中心线等分区段位置
+			wave-?\		(每个wave的数据)
+				backbone\
+				centerline\
+				centerline_txt\		(分割原始中心线，50个点，49等分)
+				centerline_inte\
+				centerline_inte_txt\	(只包含肠道部分的中心线，50个点，49等分)
+				fig\	(中心线检查)
+				worm_region\	(虫体分割结果，二值图)
+				worm_region_check\	(虫体分割检查)
+				neuron\
+				waveIntensity.mat
+				wormLength.mat
+				WormRegionPos.mat
+				AVL.mat
+				DVB.mat
+				AVL_pos.txt
+				DVB_pos.txt
+
+
+
+		*inte_range往哪儿放，在DrawWormSeg里输入？
+
+
+
+
+--------
+2 原始数据处理
+
+	%提取时间窗
+		dateFolder = 'G:\Backup\20191127\';
+		for worm_index = 2:13
+			IntensityGlobal;
+		end
+		WaveEpisode.m 	(峰值点存入‘Intestine-?.txt’第一列；确定前后取的帧数(col 2)；依后面处理难度决定是否处理(手动，col 3: y=1/n=0);需修改）
+
+
+	% Intestine 提取长度-肠道荧光
+		main.m (伪GUI，分割-中心线-长度-荧光强度)
+			输入的Head Position为ImageJ中的[y,x]
+			%虫体分割 (可选是否在worm_seg_single中切掉细小分支)
+			Segmentation('tet',Folder,frame_seq(1:23),133,Worm_Area,wave_index);
+			*在worm_seg中比较下两种荧光矫正的效果
+
+		%修正worm_region (imageJ)
+			imageJ背景色画笔：按住Alt
+			修改时不要以虚拟栈打开
+			批量保存修改后worm_region二值图：File -> Save As -> Image Sequence...
+			存至wave_Folder/temp/     
+			这里因为是要按照原本的文件名进行命名，所以勾选Use slice labels as file names。
+			如果按照数字命名，Digits代表命名的数字位数，例如Digits：4，则命名从0000、0001开始。
+			重命名原二值图： ReformWormRegionTemp(waveFolder)
+			并替换worm_region文件夹
+			更新worm_region_check文件夹：UpdateRegionCheck(Folder,wave_index)
+			输入head_position: 按imageJ的[y,x]
+
+		%更新worm_region\与worm_region_check\  （待修改：整合temp文件夹重命名）
+		ReformWormRegionTemp(waveFolder)
+		UpdateRegionCheck(Folder,wave_index)
+		更新后重跑main.m
+
+
+		%画等分点法线，确定肠道在中心线上的起点&终点
+		DrawWormSeg
+
+		%截取肠道部分中心线&更新肠道钙信号
+		TruncateCenterline.m
+		update_plots.m
+
+
+	%处理完一条虫后信息写入DMP-Archive.xlsx (excel)
+	DMP_Archive.m (待写)
+
+	
+	%神经元信号提取
+		%抓取map图像至waveFolder
+		mvMapImg.m
+		AVL_Tracking	%真的要做再想办法改
+		NeuronTracking	%真的要做再想办法改
+
+
+
+-------
+3 数据分析与呈现：
+
+	%存CaRise图和数据
+	for i = 1:8
+		h = figure(i);saveas(h,['wave ' num2str(i)]);
+	end
+	save('CaRise.mat','CaRise')
+
+
+	% Normalize肠道荧光
+	NormalizeItensity.m 	%待删
+	NomalizeIntensity_V1.m 	%可能还要改
+
+	% I_normalized - Gaussian smooth
+	sigma = 1;
+	gausFilter = fspecial('gaussian', [3,3], sigma);
+	I_gaus= imfilter(I_normalize, gausFilter, 'replicate');
+	[Ui,Si,Vi] = svd(I_gaus);
+
+
+	% 各种时长统计（待修改，基于excel）
+	BocEvent   (自动写入excel?)
+	IntervalStat
+
+	% Intestine Ca传播方向etc. (很可能需要改进算法)
+	CaEvent
+
+
+	%各种数据画进一张图
+	PlotModules
+
+	%批量存显示中的fig
+	PrintImages
+
+
+------
+附：调用的底层函数
+
+图像处理
+	Denoise_And_Worm_Locate
+	worm_seg
+	worm_seg_single
+	DrawCenterline	%画中心线存进fig/
+	UpdateCenterline_ByHand(Folder)		%手动改中心线，原属行为GUI，要用可能需修改
+	ElongateCL(centerline,img)	% 延长中心线抵达头尾边缘
+	ExtractBoundaries	% 从线虫二值图像bw_img中提取线虫曲线（左右边缘，中心线），中心线实际未更新
+	AmendCenterI	%分割虫体中降低光场中央亮度（减常值）
+	CalibrateImage	%高斯荧光pattern矫正（待比较在分割中的效果）
+	spline_fitting_partition	%中心线重等分
+
+
+数据分析
+	RemoveOutlier	%去除异常点
